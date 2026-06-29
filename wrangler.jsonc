@@ -12,10 +12,9 @@
     {
       "binding": "DB",
       "database_name": "kalshi-friends-db",
-      // Local dev uses a local SQLite under .wrangler/state — this id is a
-      // placeholder. Before deploying, run `wrangler d1 create kalshi-friends-db`
-      // and paste the real database_id here.
-      "database_id": "kalshi-friends-local",
+      // Remote D1 (account lpham127@gmail.com). Local dev still uses a local
+      // SQLite under .wrangler/state and ignores this id.
+      "database_id": "18fa2e15-f653-4ffe-8405-a75dd6261f96",
       "migrations_dir": "drizzle/migrations"
     }
   ]
