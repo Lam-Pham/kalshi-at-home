@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1782603142060,
+      "tag": "0000_bitter_random",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1782620204676,
+      "tag": "0001_worthless_thunderball",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1782759107211,
+      "tag": "0002_loose_spencer_smythe",
+      "breakpoints": true
+    }
+  ]
+}

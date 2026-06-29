@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "kalshi-friends",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-06-27",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "kalshi-friends-db",
+      // Local dev uses a local SQLite under .wrangler/state — this id is a
+      // placeholder. Before deploying, run `wrangler d1 create kalshi-friends-db`
+      // and paste the real database_id here.
+      "database_id": "kalshi-friends-local",
+      "migrations_dir": "drizzle/migrations"
+    }
+  ]
+}

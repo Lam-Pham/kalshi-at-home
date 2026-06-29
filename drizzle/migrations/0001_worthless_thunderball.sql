@@ -1,0 +1,1 @@
+ALTER TABLE `markets` ADD `yes_sub_title` text DEFAULT '' NOT NULL;
