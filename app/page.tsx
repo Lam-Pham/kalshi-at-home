@@ -50,10 +50,6 @@ export default async function Home() {
 
       <footer className="text-center text-[11px] leading-relaxed text-muted-foreground/60">
         Got an invite link? Just open it to join.
-        <span className="px-1">·</span>
-        <Link href="/demo" className="underline underline-offset-2">
-          live price demo
-        </Link>
       </footer>
     </main>
   );

@@ -88,8 +88,8 @@ export async function fetchMarket(ticker: string): Promise<KalshiMarket> {
 
 /**
  * A market we can actually offer a bet on: two-sided (real yes bid & ask), a
- * usable mid-price in (0,1), and a close still in the future. Mirrors the
- * featured-market filter so browse and bet agree on what's bettable.
+ * usable mid-price in (0,1), and a close still in the future. Shared by
+ * discovery and bet-posting so they agree on what's bettable.
  */
 export function isBettable(m: KalshiMarket, now: number = Date.now()): boolean {
   return (
@@ -100,28 +100,6 @@ export function isBettable(m: KalshiMarket, now: number = Date.now()): boolean {
     m.closeTime != null &&
     new Date(m.closeTime).getTime() > now
   );
-}
-
-/**
- * Pick one currently-bettable, actively-traded market to feature on the
- * home page. Bettable = open + two-sided (real yes bid & ask) + future close.
- * We sort by 24h volume so the demo lands on something lively.
- */
-export async function fetchFeaturedMarket(): Promise<KalshiMarket | null> {
-  const res = await fetch(
-    `${KALSHI_BASE}/markets?limit=200&status=open&mve_filter=exclude`,
-    { cache: "no-store", headers: { accept: "application/json" } },
-  );
-  if (!res.ok) throw new Error(`Kalshi markets list → HTTP ${res.status}`);
-  const body = (await res.json()) as { markets?: RawMarket[] };
-  const now = Date.now();
-
-  const bettable = (body.markets ?? [])
-    .map(normalize)
-    .filter((m) => isBettable(m, now))
-    .sort((a, b) => b.volume24h - a.volume24h);
-
-  return bettable[0] ?? null;
 }
 
 // ── Discovery: paste-a-link → event + outcomes ──────────────────────────────

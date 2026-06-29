@@ -1,4 +1,3 @@
-import { sql } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { markets } from "@/db/schema";
 import type { KalshiMarket } from "@/lib/kalshi";
@@ -21,11 +20,4 @@ export async function cacheMarket(m: KalshiMarket): Promise<void> {
     .insert(markets)
     .values({ ticker: m.ticker, ...fields })
     .onConflictDoUpdate({ target: markets.ticker, set: fields });
-}
-
-/** How many markets we've cached so far — used to prove the D1 read path. */
-export async function countCachedMarkets(): Promise<number> {
-  const db = getDb();
-  const rows = await db.select({ n: sql<number>`count(*)` }).from(markets);
-  return Number(rows[0]?.n ?? 0);
 }
