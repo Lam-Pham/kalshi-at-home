@@ -135,6 +135,16 @@ describe("computeBalances", () => {
     const total = [...bal.values()].reduce((s, v) => s + v, 0);
     expect(roundCents(total)).toBe(0);
   });
+
+  it("ignores fills whose offer is absent (e.g. a voided offer)", () => {
+    // Same resolved fill as o1, but its offer is omitted from the offers list —
+    // the way getRoomData drops cancelled offers so their slices stop counting.
+    const bal = computeBalances(members, [], [
+      { offerId: "o1", takerId: "bri", stake: 25, yesPrice: 0.25 },
+    ]);
+    expect(bal.get("bri")).toBe(0);
+    expect(bal.get("alex")).toBe(0);
+  });
 });
 
 describe("applySettlements", () => {

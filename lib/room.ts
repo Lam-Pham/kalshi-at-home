@@ -125,18 +125,23 @@ export async function getRoomData(group: Group): Promise<RoomData> {
   const settled = views.filter((v) => v.offer.status === "settled");
 
   // Outstanding balances are derived, never stored: settled-fill winnings, then
-  // netted down by any recorded real-world payments.
+  // netted down by any recorded real-world payments. Cancelled/voided offers are
+  // excluded so their slices stop counting (computeBalances skips any fill whose
+  // offer isn't in this list) — otherwise a voided offer's fills would silently
+  // re-settle once its market resolved.
   const fillBalances = computeBalances(
     members.map((m) => m.id),
-    offerRows.map((o) => ({
-      id: o.id,
-      makerId: o.makerId,
-      side: o.side as Side,
-      marketResult: (() => {
-        const r = marketByTicker.get(o.marketTicker)?.result;
-        return r === "yes" || r === "no" ? r : "";
-      })(),
-    })),
+    offerRows
+      .filter((o) => o.status !== "cancelled")
+      .map((o) => ({
+        id: o.id,
+        makerId: o.makerId,
+        side: o.side as Side,
+        marketResult: (() => {
+          const r = marketByTicker.get(o.marketTicker)?.result;
+          return r === "yes" || r === "no" ? r : "";
+        })(),
+      })),
     fillRows.map((f) => ({
       offerId: f.offerId,
       takerId: f.takerId,
