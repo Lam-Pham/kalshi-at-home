@@ -47,7 +47,7 @@ export async function createOffer(
   formData: FormData,
 ): Promise<ActionState> {
   const who = await actor(code);
-  if (!who) return { error: "Join this room before posting an offer." };
+  if (!who) return { error: "Join this room before posting a bet." };
 
   const side = Side.safeParse(formData.get("side"));
   const ticker = Ticker.safeParse(formData.get("ticker"));
@@ -101,9 +101,9 @@ export async function takeFill(
   const db = getDb();
   const offerRows = await db.select().from(offers).where(eq(offers.id, offerId)).limit(1);
   const offer = offerRows[0];
-  if (!offer || offer.groupId !== who.group.id) return { error: "That offer doesn't exist." };
-  if (offer.status !== "open") return { error: "This offer is no longer taking bets." };
-  if (offer.makerId === who.me.id) return { error: "You can't take your own offer." };
+  if (!offer || offer.groupId !== who.group.id) return { error: "That bet doesn't exist." };
+  if (offer.status !== "open") return { error: "This bet is no longer open." };
+  if (offer.makerId === who.me.id) return { error: "You can't take your own bet." };
 
   let market;
   try {
@@ -132,8 +132,8 @@ export async function takeFill(
     return {
       error:
         maxStake > 0
-          ? `Only ${money(remaining)} of this offer is left — your max stake is ${money(maxStake)}.`
-          : "This offer is fully matched.",
+          ? `Only ${money(remaining)} of this bet is left — your max stake is ${money(maxStake)}.`
+          : "This bet is fully matched.",
     };
   }
 
@@ -170,9 +170,9 @@ export async function closeOffer(
   const db = getDb();
   const offerRows = await db.select().from(offers).where(eq(offers.id, offerId)).limit(1);
   const offer = offerRows[0];
-  if (!offer || offer.groupId !== who.group.id) return { error: "That offer doesn't exist." };
-  if (offer.makerId !== who.me.id) return { error: "Only the maker can close this offer." };
-  if (offer.status !== "open") return { error: "This offer is already closed." };
+  if (!offer || offer.groupId !== who.group.id) return { error: "That bet doesn't exist." };
+  if (offer.makerId !== who.me.id) return { error: "Only the maker can close this bet." };
+  if (offer.status !== "open") return { error: "This bet is already closed." };
 
   const taken = await db.select({ id: fills.id }).from(fills).where(eq(fills.offerId, offer.id)).limit(1);
   const status = taken.length > 0 ? "closed" : "cancelled";

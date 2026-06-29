@@ -32,7 +32,7 @@ export default async function PostPage({
         >
           ← find a market
         </Link>
-        <h1 className="text-2xl font-semibold tracking-tight">Post an offer</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Post a bet</h1>
       </header>
 
       {ticker ? <OfferLoader code={code} ticker={ticker} /> : <NoMarket code={code} />}
@@ -69,7 +69,7 @@ async function OfferLoader({ code, ticker }: { code: string; ticker: string }) {
 }
 
 function NoMarket({ code }: { code: string }) {
-  return <Problem code={code} message="Pick a market to post an offer on." />;
+  return <Problem code={code} message="Pick a market to post a bet on." />;
 }
 
 function Problem({ code, message }: { code: string; message: string }) {

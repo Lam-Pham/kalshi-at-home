@@ -23,7 +23,7 @@ export function CloseOffer({
   return (
     <form action={formAction}>
       <Button type="submit" variant="ghost" size="sm" disabled={pending}>
-        {pending ? "…" : hasFills ? "Stop taking bets" : "Cancel offer"}
+        {pending ? "…" : hasFills ? "Stop taking bets" : "Cancel bet"}
       </Button>
       {state.error ? <p className="mt-1 text-xs text-destructive">{state.error}</p> : null}
     </form>

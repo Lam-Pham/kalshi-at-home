@@ -137,9 +137,9 @@ function RoomBlock({ room }: { room: AdminRoom }) {
           ))}
         </Section>
 
-        {/* Offers */}
+        {/* Bets */}
         {room.offers.length > 0 ? (
-          <Section title={`Offers (${room.offers.length})`}>
+          <Section title={`Bets (${room.offers.length})`}>
             {room.offers.map((o) => (
               <div key={o.id} className="flex items-center justify-between gap-2 text-sm">
                 <span className="min-w-0 flex-1 truncate">
@@ -154,7 +154,7 @@ function RoomBlock({ room }: { room: AdminRoom }) {
                   <ConfirmButton
                     action={adminVoidOffer.bind(null, o.id)}
                     label="Void"
-                    confirm="Void this offer? Its slices stop counting."
+                    confirm="Void this bet? Its slices stop counting."
                     className={danger}
                   />
                 ) : null}

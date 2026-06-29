@@ -102,7 +102,7 @@ export function PostOfferForm({
       {state.error ? <p className="text-sm text-destructive">{state.error}</p> : null}
 
       <Button type="submit" size="lg" disabled={pending || !valid}>
-        {pending ? "Posting…" : "Post offer"}
+        {pending ? "Posting…" : "Post bet"}
       </Button>
     </form>
   );

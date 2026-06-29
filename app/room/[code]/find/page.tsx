@@ -27,7 +27,7 @@ export default async function FindPage({
         </Link>
         <h1 className="text-2xl font-semibold tracking-tight">Find a market</h1>
         <p className="text-sm text-muted-foreground">
-          Paste a Kalshi market link, then post an offer for the room.
+          Paste a Kalshi market link, then post a bet for the room.
         </p>
       </header>
 

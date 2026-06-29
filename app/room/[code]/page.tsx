@@ -163,11 +163,11 @@ function RoomView({
             Bets
           </h2>
           <Link href={`/room/${code}/find`} className={buttonVariants({ size: "sm" })}>
-            + New offer
+            + New bet
           </Link>
         </div>
 
-        <Bucket title="Open" empty="No open offers — post one to get going.">
+        <Bucket title="Open" empty="No open bets — post one to get going.">
           {open.map((v) => (
             <OfferCard key={v.offer.id} view={v} meId={me.id} code={code} bucket="open" />
           ))}
