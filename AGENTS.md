@@ -27,16 +27,18 @@ Cloudflare Workers via `@opennextjs/cloudflare` · D1 + Drizzle · zod · swr.
   `*_dollars` fields ("0.2900" = 29% prob); parsed to floats in [0,1]. `yesMid =
   (yesBid+yesAsk)/2` drives true-odds pricing. `result` is "" until settled.
 - `lib/db.ts` — `getDb()` → Drizzle bound to D1 (`getCloudflareContext().env.DB`).
-- `db/schema.ts` — 5 tables (groups, members, markets, offers, fills). Prices = REAL dollars.
-  Balances/leaderboard are DERIVED from settled fills, never stored.
+- `db/schema.ts` — 6 tables (groups, members, markets, offers, fills, settlements).
+  Prices = REAL dollars. Balances/leaderboard are DERIVED from settled fills minus
+  settlements, never stored.
 - `app/api/markets/[ticker]/route.ts` — cached (~3s, in-memory) Kalshi proxy; upserts to D1.
 - `app/page.tsx` + `components/live-price.tsx` — Slice 1 live-price screen (SWR polls 3s).
 
 ## Gotchas (learned)
 - Public Kalshi reads need NO auth. Host: `https://api.elections.kalshi.com/trade-api/v2`.
   No text-search endpoint — must cache the open-events catalog and search locally (Slice 3).
-- `wrangler.jsonc` `database_id` is a local placeholder. Before deploying: run
-  `wrangler d1 create kalshi-friends-db`, paste the real id, then `db:migrate:remote`.
+- `wrangler.jsonc` now holds the real provisioned `database_id`. Local D1 state under
+  `.wrangler/state` is keyed by that id — changing it makes local dev start from an
+  EMPTY database ("no such table: groups"). Re-run `db:migrate:local` after any id change.
 - A stray `~/package-lock.json` confuses Next's workspace-root detection → pinned via
   `turbopack.root` in `next.config.ts`.
 - Port 3000 is often already taken on this machine; dev falls back to 3001.
