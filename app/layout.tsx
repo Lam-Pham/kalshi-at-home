@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { InlineScript } from "@/components/inline-script";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 // Runs before paint so the right theme is on <html> immediately — no flash of
@@ -33,8 +34,10 @@ export default function RootLayout({
       suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
+      <head>
+        <InlineScript html={themeScript} />
+      </head>
       <body className="min-h-full flex flex-col font-sans">
-        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
         <ThemeToggle />
         {children}
       </body>
