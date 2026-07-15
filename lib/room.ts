@@ -42,6 +42,7 @@ export interface LeaderRow {
 
 export interface RoomData {
   members: PublicMember[];
+  all: OfferView[];
   open: OfferView[];
   live: OfferView[];
   settled: OfferView[];
@@ -157,6 +158,7 @@ export async function getRoomData(group: Group): Promise<RoomData> {
 
   return {
     members,
+    all: views,
     open,
     live,
     settled,

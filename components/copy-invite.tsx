@@ -1,20 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 
 // The room URL doubles as the invite link. We build the absolute URL on the
 // client (origin isn't known at render time) and copy it to the clipboard.
 export function CopyInvite({ code }: { code: string }) {
-  const [url, setUrl] = useState("");
   const [copied, setCopied] = useState(false);
 
-  useEffect(() => {
-    setUrl(`${window.location.origin}/room/${code}`);
-  }, [code]);
-
   async function copy() {
-    const link = url || `${window.location.origin}/room/${code}`;
+    const link = `${window.location.origin}/room/${code}`;
     try {
       await navigator.clipboard.writeText(link);
       setCopied(true);
@@ -29,7 +24,7 @@ export function CopyInvite({ code }: { code: string }) {
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2">
         <code className="flex-1 truncate rounded-lg border border-border bg-muted/40 px-3 py-2 font-mono text-xs text-muted-foreground">
-          {url || `/room/${code}`}
+          /room/{code}
         </code>
         <Button type="button" variant="outline" size="lg" onClick={copy}>
           {copied ? "Copied!" : "Copy"}

@@ -41,8 +41,11 @@ export function ThemeToggle() {
 
   // Pick up the persisted choice on mount (server can't know localStorage).
   useEffect(() => {
-    setTheme(readStored());
-    setMounted(true);
+    const frame = window.requestAnimationFrame(() => {
+      setTheme(readStored());
+      setMounted(true);
+    });
+    return () => window.cancelAnimationFrame(frame);
   }, []);
 
   // Apply + persist on change, and follow the OS while in "system" mode.
@@ -61,7 +64,7 @@ export function ThemeToggle() {
   const CurrentIcon = current.Icon;
 
   return (
-    <div className="fixed right-3 top-3 z-50">
+    <div className="fixed bottom-3 right-3 z-50">
       <DropdownMenu>
         <DropdownMenuTrigger
           render={

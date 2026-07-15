@@ -1,9 +1,9 @@
 import { cookies } from "next/headers";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { getDb } from "@/lib/db";
-import { groups, members } from "@/db/schema";
+import { groups, markets, members, offers } from "@/db/schema";
 import { memberCookieName, MEMBER_COOKIE_PREFIX } from "@/lib/ids";
-import type { Group, PublicMember } from "@/db/schema";
+import type { Group, Market, Offer, PublicMember } from "@/db/schema";
 
 const ONE_YEAR = 60 * 60 * 24 * 365;
 
@@ -21,6 +21,8 @@ export async function setMemberCookie(groupId: string, memberId: string): Promis
   (await cookies()).set(memberCookieName(groupId), memberId, {
     httpOnly: true,
     sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    priority: "high",
     path: "/",
     maxAge: ONE_YEAR,
   });
@@ -62,8 +64,8 @@ export async function getMembers(groupId: string): Promise<PublicMember[]> {
     .orderBy(members.createdAt);
 }
 
-/** Rooms this device has joined (derived from its kf_m_* cookies). */
-export async function getMyRooms(): Promise<Array<{ group: Group; me: PublicMember }>> {
+/** Memberships on this device, derived from its per-group cookies. */
+async function getMyMemberships(): Promise<Array<{ group: Group; me: PublicMember }>> {
   const jar = (await cookies()).getAll();
   const pairs = jar
     .filter((c) => c.name.startsWith(MEMBER_COOKIE_PREFIX))
@@ -88,4 +90,50 @@ export async function getMyRooms(): Promise<Array<{ group: Group; me: PublicMemb
     if (group && me && me.groupId === group.id) result.push({ group, me });
   }
   return result;
+}
+
+/** Traditional multi-bet rooms this device has joined. */
+export async function getMyRooms(): Promise<Array<{ group: Group; me: PublicMember }>> {
+  return (await getMyMemberships()).filter(({ group }) => group.kind === "room");
+}
+
+export interface MyQuickBet {
+  group: Group;
+  me: PublicMember;
+  offer: Offer & { shareCode: string };
+  market: Market | null;
+}
+
+/** One-off bets this device can reopen from the homepage. */
+export async function getMyQuickBets(): Promise<MyQuickBet[]> {
+  const memberships = (await getMyMemberships()).filter(({ group }) => group.kind === "quick");
+  if (memberships.length === 0) return [];
+
+  const db = getDb();
+  const groupIds = memberships.map(({ group }) => group.id);
+  const offerRows = await db
+    .select()
+    .from(offers)
+    .where(and(inArray(offers.groupId, groupIds), isNotNull(offers.shareCode)));
+  const relevant = offerRows.filter((offer) => offer.shareCode);
+  const tickers = [...new Set(relevant.map((offer) => offer.marketTicker))];
+  const marketRows = tickers.length
+    ? await db.select().from(markets).where(inArray(markets.ticker, tickers))
+    : [];
+  const membershipByGroup = new Map(memberships.map((item) => [item.group.id, item]));
+  const marketByTicker = new Map(marketRows.map((market) => [market.ticker, market]));
+
+  return relevant
+    .flatMap((offer): MyQuickBet[] => {
+      const membership = membershipByGroup.get(offer.groupId);
+      if (!membership || !offer.shareCode) return [];
+      return [
+        {
+          ...membership,
+          offer: { ...offer, shareCode: offer.shareCode },
+          market: marketByTicker.get(offer.marketTicker) ?? null,
+        },
+      ];
+    })
+    .sort((a, b) => b.offer.createdAt.getTime() - a.offer.createdAt.getTime());
 }

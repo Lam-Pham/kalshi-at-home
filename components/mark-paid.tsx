@@ -11,14 +11,16 @@ export function MarkPaid({
   fromId,
   toId,
   amount,
+  returnTo,
 }: {
   code: string;
   fromId: string;
   toId: string;
   amount: number;
+  returnTo?: string;
 }) {
   const [state, formAction, pending] = useActionState(
-    recordSettlement.bind(null, code, fromId, toId, amount),
+    recordSettlement.bind(null, code, fromId, toId, amount, returnTo ?? `/room/${code}`),
     initial,
   );
 

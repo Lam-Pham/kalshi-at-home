@@ -19,8 +19,12 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "kalshi-friends",
-  description: "Bet against your friends on real Kalshi odds. No money, just IOUs.",
+  title: {
+    default: "kalshi-friends · make the bet",
+    template: "%s · kalshi-friends",
+  },
+  description:
+    "Create a friendly one-off bet on live Kalshi odds, share one link, and track the IOU through the official result.",
 };
 
 export default function RootLayout({

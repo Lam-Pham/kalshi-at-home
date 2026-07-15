@@ -35,6 +35,7 @@ export async function createRoom(
   await db.insert(groups).values({
     id: groupId,
     name: room.data,
+    kind: "room",
     inviteCode,
     createdAt: now,
   });

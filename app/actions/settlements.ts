@@ -21,9 +21,12 @@ export async function recordSettlement(
   fromId: string,
   toId: string,
   amount: number,
+  returnTo: string,
   _prev: ActionState,
   _formData: FormData,
 ): Promise<ActionState> {
+  void _prev;
+  void _formData;
   const group = await getRoomByCode(code);
   if (!group) return { error: "That room doesn’t exist." };
   const me = await getCurrentMember(group.id);
@@ -51,5 +54,6 @@ export async function recordSettlement(
     createdAt: new Date(),
   });
 
-  redirect(`/room/${code}`);
+  const destination = returnTo.startsWith("/bet/") ? returnTo : `/room/${code}`;
+  redirect(destination);
 }

@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "@/lib/db";
 import { offers, fills } from "@/db/schema";
-import { newId } from "@/lib/ids";
+import { newBetCode, newId } from "@/lib/ids";
 import { getRoomByCode, getCurrentMember } from "@/lib/session";
 import { fetchMarket, isBettable } from "@/lib/kalshi";
 import { cacheMarket } from "@/lib/markets";
@@ -70,6 +70,7 @@ export async function createOffer(
   const db = getDb();
   await db.insert(offers).values({
     id: newId(),
+    shareCode: newBetCode(),
     groupId: who.group.id,
     marketTicker: market.ticker,
     makerId: who.me.id,
@@ -164,6 +165,8 @@ export async function closeOffer(
   _prev: ActionState,
   _formData: FormData,
 ): Promise<ActionState> {
+  void _prev;
+  void _formData;
   const who = await actor(code);
   if (!who) return { error: "Join this room first." };
 

@@ -2,8 +2,16 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "kalshi-friends",
   "main": ".open-next/worker.js",
-  "compatibility_date": "2026-06-27",
+  "compatibility_date": "2026-07-15",
   "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "invocation_logs": true
+    }
+  },
   "assets": {
     "directory": ".open-next/assets",
     "binding": "ASSETS"

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { TakeSlice } from "@/components/take-slice";
 import { CloseOffer } from "@/components/close-offer";
 import { usd, cents } from "@/lib/format";
@@ -138,7 +139,15 @@ export function OfferCard({
 
       {bucket === "open" ? (
         isMaker ? (
-          <div className="flex justify-end border-t border-border pt-2">
+          <div className="flex items-center justify-between border-t border-border pt-2">
+            {offer.shareCode ? (
+              <Link
+                href={`/bet/${offer.shareCode}`}
+                className="text-xs font-medium text-muted-foreground underline underline-offset-4 hover:text-foreground"
+              >
+                Open share link
+              </Link>
+            ) : <span />}
             <CloseOffer code={code} offerId={offer.id} hasFills={fills.length > 0} />
           </div>
         ) : remaining > 0.01 ? (

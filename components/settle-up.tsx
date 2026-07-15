@@ -19,11 +19,13 @@ export function SettleUp({
   members,
   roomName,
   code,
+  returnTo,
 }: {
   transfers: Transfer[];
   members: PublicMember[];
   roomName: string;
   code: string;
+  returnTo?: string;
 }) {
   if (transfers.length === 0) return null;
   const nameOf = (id: string) => members.find((m) => m.id === id)?.name ?? "Someone";
@@ -53,7 +55,13 @@ export function SettleUp({
               >
                 Venmo
               </a>
-              <MarkPaid code={code} fromId={t.fromId} toId={t.toId} amount={t.amount} />
+              <MarkPaid
+                code={code}
+                fromId={t.fromId}
+                toId={t.toId}
+                amount={t.amount}
+                returnTo={returnTo}
+              />
             </span>
           </li>
         ))}

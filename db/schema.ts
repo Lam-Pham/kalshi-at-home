@@ -5,6 +5,9 @@ import { sqliteTable, text, integer, real, uniqueIndex } from "drizzle-orm/sqlit
 export const groups = sqliteTable("groups", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
+  kind: text("kind", { enum: ["room", "quick"] })
+    .notNull()
+    .default("room"),
   inviteCode: text("invite_code").notNull().unique(),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });
@@ -54,6 +57,9 @@ export const markets = sqliteTable("markets", {
 // slices of the opposite side until the budget is exhausted.
 export const offers = sqliteTable("offers", {
   id: text("id").primaryKey(),
+  // Opaque public link for the focused one-bet experience. Nullable only for
+  // offers created before this column existed; every new offer receives one.
+  shareCode: text("share_code").unique(),
   groupId: text("group_id")
     .notNull()
     .references(() => groups.id),

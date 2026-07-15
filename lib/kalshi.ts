@@ -102,11 +102,12 @@ export function isBettable(m: KalshiMarket, now: number = Date.now()): boolean {
   );
 }
 
-// ── Discovery: paste-a-link → event + outcomes ──────────────────────────────
+// ── Discovery: lightweight catalog + paste-a-link resolution ────────────────
 //
-// Markets are found by pasting a Kalshi link (or bare ticker), which we resolve
-// to its open event(s) and bettable markets. Kalshi has no text-search endpoint,
-// so there's no browse/search/trending feed — just direct link resolution.
+// Kalshi has no public text-search endpoint. For the human-friendly picker we
+// fetch a bounded slice of the open-events catalog, search it locally, and keep
+// paste-a-link as the exact fallback for long-tail markets. The server always
+// re-fetches a selected market before creating or taking a bet.
 
 type RawEvent = {
   event_ticker: string;
@@ -156,6 +157,204 @@ function normalizeEvent(e: RawEvent, now: number): KalshiEvent {
 }
 
 const byVolume = (a: KalshiEvent, b: KalshiEvent) => b.volume24h - a.volume24h;
+
+function eventSearchText(event: KalshiEvent): string {
+  return [
+    event.title,
+    event.subTitle,
+    event.category,
+    event.eventTicker,
+    ...event.markets.flatMap((market) => [market.title, market.yesSubTitle, market.ticker]),
+  ]
+    .join(" ")
+    .toLowerCase();
+}
+
+/** Treat the everyday name and market shorthand as the same search term. */
+function searchTermGroups(query: string): string[][] {
+  const aliases: Record<string, string[]> = {
+    bitcoin: ["bitcoin", "btc"],
+    btc: ["btc", "bitcoin"],
+    ethereum: ["ethereum", "eth"],
+    eth: ["eth", "ethereum"],
+    solana: ["solana", "sol"],
+    sol: ["sol", "solana"],
+  };
+  return query
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => aliases[word] ?? [word]);
+}
+
+function textMatchesQuery(text: string, query: string): boolean {
+  return searchTermGroups(query).every((group) => group.some((term) => text.includes(term)));
+}
+
+function searchScore(event: KalshiEvent, query: string): number {
+  if (!query) return Math.log10(event.volume24h + 1);
+  const title = event.title.toLowerCase();
+  const groups = searchTermGroups(query);
+  const haystack = eventSearchText(event);
+  if (!textMatchesQuery(haystack, query)) return -1;
+
+  let score = Math.log10(event.volume24h + 1);
+  if (title === query) score += 100;
+  else if (title.startsWith(query)) score += 50;
+  else if (title.includes(query)) score += 25;
+  score += groups.filter((group) => group.some((word) => title.includes(word))).length * 5;
+  return score;
+}
+
+function prioritizeMarkets(event: KalshiEvent, query: string): KalshiEvent {
+  if (!query) return { ...event, markets: event.markets.slice(0, 14) };
+  const markets = [...event.markets]
+    .sort((a, b) => {
+      const aText = `${a.title} ${a.yesSubTitle} ${a.ticker}`.toLowerCase();
+      const bText = `${b.title} ${b.yesSubTitle} ${b.ticker}`.toLowerCase();
+      const aMatch = textMatchesQuery(aText, query) ? 1 : 0;
+      const bMatch = textMatchesQuery(bText, query) ? 1 : 0;
+      return bMatch - aMatch || b.volume24h - a.volume24h;
+    })
+    .slice(0, 18);
+  return { ...event, markets };
+}
+
+type RawSeries = {
+  ticker: string;
+  title: string;
+  category?: string;
+  tags?: string[];
+  last_updated_ts?: string;
+};
+
+/**
+ * Kalshi's event endpoint has no text search, and frequently recurring markets
+ * (crypto in particular) can sit beyond the bounded catalog above. The series
+ * catalog is much smaller for these categories, so it gives us a focused,
+ * inexpensive route to the current events without crawling every event.
+ */
+function lightweightCategory(query: string): string | null {
+  const text = ` ${query} `;
+  if (/\b(bitcoin|btc|ethereum|eth|solana|sol|crypto|doge|xrp)\b/.test(text)) return "Crypto";
+  if (/\b(inflation|cpi|gdp|jobs|unemployment|fed|interest rates?|recession)\b/.test(text)) {
+    return "Economics";
+  }
+  if (/\b(stock|shares?|earnings?|revenue|company|companies)\b/.test(text)) return "Companies";
+  return null;
+}
+
+function seriesScore(series: RawSeries, query: string): number {
+  const title = series.title.toLowerCase();
+  const ticker = series.ticker.toLowerCase().replace(/^kx/, "");
+  const haystack = `${series.title} ${series.ticker} ${(series.tags ?? []).join(" ")}`.toLowerCase();
+  if (!textMatchesQuery(haystack, query)) return -1;
+
+  let score = series.ticker.startsWith("KX") ? 3 : 0;
+  if (searchTermGroups(query).some((group) => group.includes(ticker))) score += 75;
+  if (title === query) score += 100;
+  else if (title.startsWith(query)) score += 50;
+  else if (title.includes(query)) score += 25;
+  score += searchTermGroups(query).filter((group) =>
+    group.some((term) => title.includes(term)),
+  ).length * 5;
+  const updated = series.last_updated_ts ? new Date(series.last_updated_ts).getTime() : 0;
+  return score + (Number.isFinite(updated) ? updated / 1e13 : 0);
+}
+
+async function discoverRecurringSeries(query: string, now: number): Promise<KalshiEvent[]> {
+  const category = lightweightCategory(query);
+  if (!category) return [];
+
+  const seriesResponse = await fetch(
+    `${KALSHI_BASE}/series?category=${encodeURIComponent(category)}&limit=200`,
+    { cache: "no-store", headers: { accept: "application/json" } },
+  );
+  if (!seriesResponse.ok) return [];
+  const seriesBody = (await seriesResponse.json()) as { series?: RawSeries[] };
+  const candidates = (seriesBody.series ?? [])
+    .map((series) => ({ series, score: seriesScore(series, query) }))
+    .filter((candidate) => candidate.score >= 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5);
+
+  const responses = await Promise.all(
+    candidates.map(async ({ series }) => {
+      const params = new URLSearchParams({
+        series_ticker: series.ticker,
+        status: "open",
+        with_nested_markets: "true",
+        limit: "20",
+      });
+      const response = await fetch(`${KALSHI_BASE}/events?${params.toString()}`, {
+        cache: "no-store",
+        headers: { accept: "application/json" },
+      });
+      if (!response.ok) return [];
+      const body = (await response.json()) as { events?: RawEvent[] };
+      return (body.events ?? [])
+        .map((event) => normalizeEvent(event, now))
+        .filter((event) => event.markets.length > 0);
+    }),
+  );
+
+  return responses.flat();
+}
+
+/**
+ * Browse or search a bounded open-events catalog. This intentionally caps
+ * upstream pagination so a cold Worker request stays small and predictable;
+ * exact Kalshi URLs remain available for anything outside the sampled catalog.
+ */
+export async function discoverEvents(rawQuery: string): Promise<KalshiEvent[]> {
+  const query = rawQuery.trim().toLowerCase();
+  const now = Date.now();
+  const events: KalshiEvent[] = [];
+  const seen = new Set<string>();
+  let cursor = "";
+  const maxPages = query ? 4 : 2;
+
+  for (let page = 0; page < maxPages; page += 1) {
+    const params = new URLSearchParams({
+      status: "open",
+      with_nested_markets: "true",
+      limit: "100",
+    });
+    if (cursor) params.set("cursor", cursor);
+
+    const res = await fetch(`${KALSHI_BASE}/events?${params.toString()}`, {
+      cache: "no-store",
+      headers: { accept: "application/json" },
+    });
+    if (!res.ok) {
+      if (events.length > 0) break;
+      throw new Error(`Kalshi events → HTTP ${res.status}`);
+    }
+
+    const body = (await res.json()) as { events?: RawEvent[]; cursor?: string };
+    for (const raw of body.events ?? []) {
+      if (seen.has(raw.event_ticker)) continue;
+      seen.add(raw.event_ticker);
+      const event = normalizeEvent(raw, now);
+      if (event.markets.length > 0 && searchScore(event, query) >= 0) events.push(event);
+    }
+
+    cursor = body.cursor ?? "";
+    if (!cursor || (query && events.length >= 30)) break;
+  }
+
+  if (query && events.length < 6) {
+    for (const event of await discoverRecurringSeries(query, now)) {
+      if (seen.has(event.eventTicker)) continue;
+      seen.add(event.eventTicker);
+      events.push(event);
+    }
+  }
+
+  return events
+    .sort((a, b) => searchScore(b, query) - searchScore(a, query) || byVolume(a, b))
+    .slice(0, 18)
+    .map((event) => prioritizeMarkets(event, query));
+}
 
 /** Fetch a single event (fresh) by its ticker, with its bettable markets. */
 export async function fetchEvent(eventTicker: string): Promise<KalshiEvent | null> {

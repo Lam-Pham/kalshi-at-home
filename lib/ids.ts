@@ -17,6 +17,14 @@ export function newInviteCode(): string {
   return out;
 }
 
+/** Opaque URL token for a shared one-off bet (~60 bits of entropy). */
+export function newBetCode(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(12));
+  let out = "";
+  for (const b of bytes) out += CODE_ALPHABET[b % CODE_ALPHABET.length];
+  return out;
+}
+
 /**
  * Cookie that ties this device to its membership in a given group.
  * Identity = display name + device cookie; one cookie per joined room, so a
