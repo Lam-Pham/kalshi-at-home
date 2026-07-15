@@ -7,7 +7,7 @@
 // Browser-direct calls are CORS-blocked, so the app always reaches Kalshi
 // through our own backend (route handlers / server components).
 
-const KALSHI_BASE = "https://api.elections.kalshi.com/trade-api/v2";
+const KALSHI_BASE = "https://external-api.kalshi.com/trade-api/v2";
 
 /** Raw market object as returned by Kalshi (only the fields we use). */
 type RawMarket = {
@@ -74,16 +74,24 @@ function normalize(m: RawMarket): KalshiMarket {
 
 /** Fetch a single market by ticker. Throws on non-200 or missing market. */
 export async function fetchMarket(ticker: string): Promise<KalshiMarket> {
-  const res = await fetch(`${KALSHI_BASE}/markets/${encodeURIComponent(ticker)}`, {
-    cache: "no-store",
-    headers: { accept: "application/json" },
-  });
-  if (!res.ok) {
-    throw new Error(`Kalshi market ${ticker} → HTTP ${res.status}`);
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const res = await fetch(`${KALSHI_BASE}/markets/${encodeURIComponent(ticker)}`, {
+      cache: "no-store",
+      headers: { accept: "application/json" },
+    });
+    if (res.ok) {
+      const body = (await res.json()) as { market?: RawMarket };
+      if (!body.market) throw new Error(`Kalshi market ${ticker} → no market in response`);
+      return normalize(body.market);
+    }
+    if (res.status !== 429 || attempt === 2) {
+      throw new Error(`Kalshi market ${ticker} → HTTP ${res.status}`);
+    }
+    // Kalshi's public read bucket does not send Retry-After; use a short
+    // exponential pause before rechecking the live price.
+    await new Promise((resolve) => setTimeout(resolve, attempt === 0 ? 300 : 1_200));
   }
-  const body = (await res.json()) as { market?: RawMarket };
-  if (!body.market) throw new Error(`Kalshi market ${ticker} → no market in response`);
-  return normalize(body.market);
+  throw new Error(`Kalshi market ${ticker} → exhausted retries`);
 }
 
 /**
@@ -219,132 +227,112 @@ function prioritizeMarkets(event: KalshiEvent, query: string): KalshiEvent {
   return { ...event, markets };
 }
 
-type RawSeries = {
-  ticker: string;
-  title: string;
-  category?: string;
-  tags?: string[];
-  last_updated_ts?: string;
-};
+const CURATED_MARKETS = [
+  { ticker: "KXPRESPERSON-28-RDES", category: "Elections", search: "2028 president presidential election winner desantis politics" },
+  { ticker: "KXNEXTAG-29-TBLA", category: "Politics", search: "trump next attorney general todd blanche politics" },
+  { ticker: "CHINAUSGDP-30", category: "Economics", search: "china usa us gdp economy economics 2030" },
+  { ticker: "KXBOND-30-AP", category: "Entertainment", search: "next james bond actor cast aaron pierre entertainment movie film" },
+  { ticker: "KXOAIANTH-40-ANTH", category: "Financials", search: "openai anthropic ipo first financials company" },
+  { ticker: "KXWCHOST-2038-USA", category: "Sports", search: "2038 fifa world cup host usa sports soccer" },
+  { ticker: "APPLEUS-29DEC31", category: "Companies", search: "apple monopoly court companies technology" },
+  { ticker: "KXELONMARS-99", category: "World", search: "elon musk visit mars world space" },
+  { ticker: "KXSPACEXMARS-30", category: "Science and Technology", search: "spacex land mars science technology space" },
+  { ticker: "KXFDATYPE1DIABETES-33", category: "Health", search: "fda cure type 1 diabetes health" },
+  { ticker: "KXBTCMAXY-26DEC31-139999.99", category: "Crypto", search: "bitcoin btc price crypto 2026" },
+  { ticker: "KXETHMAXY-27JAN01-4000.00", category: "Crypto", search: "ethereum eth price crypto 2027" },
+] as const;
 
-/**
- * Kalshi's event endpoint has no text search, and frequently recurring markets
- * (crypto in particular) can sit beyond the bounded catalog above. The series
- * catalog is much smaller for these categories, so it gives us a focused,
- * inexpensive route to the current events without crawling every event.
- */
-function lightweightCategory(query: string): string | null {
-  const text = ` ${query} `;
-  if (/\b(bitcoin|btc|ethereum|eth|solana|sol|crypto|doge|xrp)\b/.test(text)) return "Crypto";
-  if (/\b(inflation|cpi|gdp|jobs|unemployment|fed|interest rates?|recession)\b/.test(text)) {
-    return "Economics";
-  }
-  if (/\b(stock|shares?|earnings?|revenue|company|companies)\b/.test(text)) return "Companies";
-  return null;
+const curatedCache = new Map<string, { expiresAt: number; event: KalshiEvent }>();
+
+function marketAsEvent(market: KalshiMarket, category = ""): KalshiEvent {
+  return {
+    eventTicker: market.eventTicker || market.ticker,
+    seriesTicker: market.eventTicker.split("-")[0] ?? "",
+    title: market.title,
+    subTitle: "",
+    category,
+    mutuallyExclusive: false,
+    markets: [market],
+    volume24h: market.volume24h,
+    closeTime: market.closeTime,
+  };
 }
 
-function seriesScore(series: RawSeries, query: string): number {
-  const title = series.title.toLowerCase();
-  const ticker = series.ticker.toLowerCase().replace(/^kx/, "");
-  const haystack = `${series.title} ${series.ticker} ${(series.tags ?? []).join(" ")}`.toLowerCase();
-  if (!textMatchesQuery(haystack, query)) return -1;
-
-  let score = series.ticker.startsWith("KX") ? 3 : 0;
-  if (searchTermGroups(query).some((group) => group.includes(ticker))) score += 75;
-  if (title === query) score += 100;
-  else if (title.startsWith(query)) score += 50;
-  else if (title.includes(query)) score += 25;
-  score += searchTermGroups(query).filter((group) =>
-    group.some((term) => title.includes(term)),
-  ).length * 5;
-  const updated = series.last_updated_ts ? new Date(series.last_updated_ts).getTime() : 0;
-  return score + (Number.isFinite(updated) ? updated / 1e13 : 0);
-}
-
-async function discoverRecurringSeries(query: string, now: number): Promise<KalshiEvent[]> {
-  const category = lightweightCategory(query);
-  if (!category) return [];
-
-  const seriesResponse = await fetch(
-    `${KALSHI_BASE}/series?category=${encodeURIComponent(category)}&limit=200`,
-    { cache: "no-store", headers: { accept: "application/json" } },
-  );
-  if (!seriesResponse.ok) return [];
-  const seriesBody = (await seriesResponse.json()) as { series?: RawSeries[] };
-  const candidates = (seriesBody.series ?? [])
-    .map((series) => ({ series, score: seriesScore(series, query) }))
-    .filter((candidate) => candidate.score >= 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 5);
-
-  const responses = await Promise.all(
-    candidates.map(async ({ series }) => {
-      const params = new URLSearchParams({
-        series_ticker: series.ticker,
-        status: "open",
-        with_nested_markets: "true",
-        limit: "20",
-      });
-      const response = await fetch(`${KALSHI_BASE}/events?${params.toString()}`, {
-        cache: "no-store",
-        headers: { accept: "application/json" },
-      });
-      if (!response.ok) return [];
-      const body = (await response.json()) as { events?: RawEvent[] };
-      return (body.events ?? [])
-        .map((event) => normalizeEvent(event, now))
-        .filter((event) => event.markets.length > 0);
+/** Reliable popular-market fallback when Kalshi rate-limits its catalog API. */
+async function curatedEvents(now: number, query: string): Promise<KalshiEvent[]> {
+  const candidates = (query
+    ? CURATED_MARKETS.filter((item) =>
+        textMatchesQuery(`${item.search} ${item.ticker}`.toLowerCase(), query),
+      )
+    : CURATED_MARKETS.slice(0, 6)
+  ).slice(0, 4);
+  const results = await Promise.allSettled(
+    candidates.map(async ({ ticker, category }) => {
+      const cached = curatedCache.get(ticker);
+      if (cached && cached.expiresAt > now) return cached.event;
+      const market = await fetchMarket(ticker);
+      if (!isBettable(market, now)) return null;
+      const event = marketAsEvent(market, category);
+      curatedCache.set(ticker, { event, expiresAt: now + 60_000 });
+      return event;
     }),
   );
-
-  return responses.flat();
+  return results.flatMap((result) =>
+    result.status === "fulfilled" && result.value ? [result.value] : [],
+  );
 }
 
 /**
- * Browse or search a bounded open-events catalog. This intentionally caps
- * upstream pagination so a cold Worker request stays small and predictable;
- * exact Kalshi URLs remain available for anything outside the sampled catalog.
+ * Browse or search a bounded open-events catalog. Anonymous catalog reads can
+ * be rate-limited independently from single-market reads, so one catalog page
+ * is merged with a small, freshly priced fallback set. Exact Kalshi URLs remain
+ * available for anything outside the sampled catalog.
  */
 export async function discoverEvents(rawQuery: string): Promise<KalshiEvent[]> {
   const query = rawQuery.trim().toLowerCase();
   const now = Date.now();
+
+  // Common searches can skip the heavier catalog call entirely. This both
+  // feels faster and preserves Kalshi's anonymous read budget for long-tail
+  // discovery.
+  if (query) {
+    const focused = await curatedEvents(now, query);
+    if (focused.length > 0) {
+      return focused
+        .sort((a, b) => searchScore(b, query) - searchScore(a, query) || byVolume(a, b))
+        .map((event) => prioritizeMarkets(event, query));
+    }
+  }
+
   const events: KalshiEvent[] = [];
   const seen = new Set<string>();
-  let cursor = "";
-  const maxPages = query ? 4 : 2;
+  const params = new URLSearchParams({
+    status: "open",
+    with_nested_markets: "true",
+    limit: "100",
+  });
 
-  for (let page = 0; page < maxPages; page += 1) {
-    const params = new URLSearchParams({
-      status: "open",
-      with_nested_markets: "true",
-      limit: "100",
-    });
-    if (cursor) params.set("cursor", cursor);
-
+  try {
     const res = await fetch(`${KALSHI_BASE}/events?${params.toString()}`, {
       cache: "no-store",
       headers: { accept: "application/json" },
     });
-    if (!res.ok) {
-      if (events.length > 0) break;
-      throw new Error(`Kalshi events → HTTP ${res.status}`);
+    if (res.ok) {
+      const body = (await res.json()) as { events?: RawEvent[] };
+      for (const raw of body.events ?? []) {
+        if (seen.has(raw.event_ticker)) continue;
+        seen.add(raw.event_ticker);
+        const event = normalizeEvent(raw, now);
+        if (event.markets.length > 0 && searchScore(event, query) >= 0) events.push(event);
+      }
     }
-
-    const body = (await res.json()) as { events?: RawEvent[]; cursor?: string };
-    for (const raw of body.events ?? []) {
-      if (seen.has(raw.event_ticker)) continue;
-      seen.add(raw.event_ticker);
-      const event = normalizeEvent(raw, now);
-      if (event.markets.length > 0 && searchScore(event, query) >= 0) events.push(event);
-    }
-
-    cursor = body.cursor ?? "";
-    if (!cursor || (query && events.length >= 30)) break;
+  } catch {
+    // The exact-market fallback below is intentionally independent of this API.
   }
 
-  if (query && events.length < 6) {
-    for (const event of await discoverRecurringSeries(query, now)) {
-      if (seen.has(event.eventTicker)) continue;
+  if (events.length < 6) {
+    for (const event of await curatedEvents(now, query)) {
+      if (seen.has(event.eventTicker) || searchScore(event, query) < 0) continue;
       seen.add(event.eventTicker);
       events.push(event);
     }
@@ -370,11 +358,6 @@ export async function fetchEvent(eventTicker: string): Promise<KalshiEvent | nul
   return ev.markets.length > 0 ? ev : null;
 }
 
-/** A single bettable market, wrapped as an event so the UI can render it. */
-function singleMarketEvent(ev: KalshiEvent, m: KalshiMarket): KalshiEvent {
-  return { ...ev, markets: [m], volume24h: m.volume24h, closeTime: m.closeTime };
-}
-
 /**
  * Resolve a pasted Kalshi link (or bare ticker) to its events, scoped as
  * tightly as the link allows. A Kalshi URL encodes up to three levels —
@@ -391,6 +374,7 @@ export async function resolveLink(input: string): Promise<KalshiEvent[]> {
   let marketTicker = "";
   let eventTicker = "";
   let seriesTicker = "";
+  let bareTicker = "";
 
   if (/^https?:\/\//i.test(raw) || raw.includes("kalshi.com")) {
     try {
@@ -412,6 +396,7 @@ export async function resolveLink(input: string): Promise<KalshiEvent[]> {
   if (!marketTicker && !eventTicker && !seriesTicker) {
     // Bare ticker: classify by depth (SERIES / SERIES-EVENT / SERIES-EVENT-MARKET).
     const t = raw.toUpperCase();
+    bareTicker = t;
     const depth = (t.match(/-/g) ?? []).length;
     if (depth >= 2) marketTicker = t;
     else if (depth === 1) eventTicker = t;
@@ -423,11 +408,15 @@ export async function resolveLink(input: string): Promise<KalshiEvent[]> {
     eventTicker = marketTicker.split("-").slice(0, -1).join("-");
   }
 
-  // 1) Exact market → show just that outcome.
-  if (marketTicker && eventTicker) {
-    const ev = await fetchEvent(eventTicker);
-    const one = ev?.markets.find((m) => m.ticker === marketTicker);
-    if (ev && one) return [singleMarketEvent(ev, one)];
+  // 1) Exact market → avoid the heavier event catalog entirely.
+  const exactTicker = marketTicker || bareTicker;
+  if (exactTicker) {
+    try {
+      const market = await fetchMarket(exactTicker);
+      if (isBettable(market)) return [marketAsEvent(market)];
+    } catch {
+      // Fall through to event/series resolution for a helpful empty result.
+    }
   }
 
   // 2) Specific event → show its outcomes.
