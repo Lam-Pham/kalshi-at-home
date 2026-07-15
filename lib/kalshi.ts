@@ -351,10 +351,13 @@ export async function fetchEvent(eventTicker: string): Promise<KalshiEvent | nul
     { cache: "no-store", headers: { accept: "application/json" } },
   );
   if (!res.ok) return null;
-  // Single-event responses put markets as a sibling of `event`, not nested.
+  // Kalshi has returned both shapes here. Some responses include an empty
+  // sibling `markets` array while the real outcomes live on `event.markets`,
+  // so only prefer the sibling collection when it actually has outcomes.
   const body = (await res.json()) as { event?: RawEvent; markets?: RawMarket[] };
   if (!body.event) return null;
-  const ev = normalizeEvent({ ...body.event, markets: body.markets ?? body.event.markets }, Date.now());
+  const markets = body.markets?.length ? body.markets : body.event.markets;
+  const ev = normalizeEvent({ ...body.event, markets }, Date.now());
   return ev.markets.length > 0 ? ev : null;
 }
 
