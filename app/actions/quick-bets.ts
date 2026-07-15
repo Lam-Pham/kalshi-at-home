@@ -7,7 +7,7 @@ import { groups, members, offers, fills } from "@/db/schema";
 import { getDb } from "@/lib/db";
 import { newBetCode, newId, newInviteCode } from "@/lib/ids";
 import { fetchMarket, isBettable } from "@/lib/kalshi";
-import { cacheMarket } from "@/lib/markets";
+import { cacheMarket, getCachedMarket } from "@/lib/markets";
 import { hashPin, verifyPin } from "@/lib/pin";
 import { getCurrentMember, setMemberCookie } from "@/lib/session";
 import { getSharedBet } from "@/lib/shared-bets";
@@ -54,8 +54,12 @@ export async function createQuickBet(
   try {
     market = await fetchMarket(ticker.data);
   } catch {
-    return { error: "Couldn’t reach Kalshi for a fresh price. Try again." };
+    // Creating the share link does not lock odds; the taker gets a fresh quote
+    // when they confirm. A recent picker/page quote is therefore a safe
+    // availability fallback when Kalshi briefly throttles this request.
+    market = await getCachedMarket(ticker.data);
   }
+  if (!market) return { error: "Couldn’t reach Kalshi for a recent price. Try again." };
   if (!isBettable(market)) {
     return { error: "That market just stopped taking bets. Pick another one." };
   }
