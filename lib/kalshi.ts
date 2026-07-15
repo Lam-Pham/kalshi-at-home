@@ -243,6 +243,7 @@ const CURATED_MARKETS = [
 ] as const;
 
 const curatedCache = new Map<string, { expiresAt: number; event: KalshiEvent }>();
+const eventCache = new Map<string, { expiresAt: number; event: KalshiEvent }>();
 
 function marketAsEvent(market: KalshiMarket, category = ""): KalshiEvent {
   return {
@@ -344,21 +345,67 @@ export async function discoverEvents(rawQuery: string): Promise<KalshiEvent[]> {
     .map((event) => prioritizeMarkets(event, query));
 }
 
-/** Fetch a single event (fresh) by its ticker, with its bettable markets. */
+/** Fetch a single event by its ticker, with its bettable markets. */
 export async function fetchEvent(eventTicker: string): Promise<KalshiEvent | null> {
-  const res = await fetch(
-    `${KALSHI_BASE}/events/${encodeURIComponent(eventTicker)}?with_nested_markets=true`,
-    { cache: "no-store", headers: { accept: "application/json" } },
-  );
-  if (!res.ok) return null;
-  // Kalshi has returned both shapes here. Some responses include an empty
-  // sibling `markets` array while the real outcomes live on `event.markets`,
-  // so only prefer the sibling collection when it actually has outcomes.
-  const body = (await res.json()) as { event?: RawEvent; markets?: RawMarket[] };
-  if (!body.event) return null;
-  const markets = body.markets?.length ? body.markets : body.event.markets;
-  const ev = normalizeEvent({ ...body.event, markets }, Date.now());
-  return ev.markets.length > 0 ? ev : null;
+  const ticker = eventTicker.toUpperCase();
+  const now = Date.now();
+  const cached = eventCache.get(ticker);
+  if (cached && cached.expiresAt > now) return cached.event;
+
+  let event: RawEvent | undefined;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const res = await fetch(
+      `${KALSHI_BASE}/events/${encodeURIComponent(ticker)}?with_nested_markets=true`,
+      { cache: "no-store", headers: { accept: "application/json" } },
+    );
+    if (res.ok) {
+      // The nested collection is the current API shape. Kalshi also includes a
+      // deprecated sibling collection which can be present but empty.
+      const body = (await res.json()) as { event?: RawEvent; markets?: RawMarket[] };
+      event = body.event;
+      if (!event) break;
+      const markets = event.markets?.length ? event.markets : body.markets;
+      const normalized = normalizeEvent({ ...event, markets }, now);
+      if (normalized.markets.length > 0) {
+        eventCache.set(ticker, { event: normalized, expiresAt: now + 30_000 });
+        return normalized;
+      }
+      break;
+    }
+    if (res.status !== 429 || attempt === 3) break;
+    await new Promise((resolve) => setTimeout(resolve, [250, 750, 1_500][attempt]));
+  }
+
+  // Kalshi can rate-limit the exact-event endpoint at the edge. Its documented
+  // market catalog supports an event_ticker filter, which gives us a second,
+  // tightly scoped way to recover the event's open outcomes.
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const params = new URLSearchParams({ event_ticker: ticker, status: "open", limit: "100" });
+    const res = await fetch(`${KALSHI_BASE}/markets?${params.toString()}`, {
+      cache: "no-store",
+      headers: { accept: "application/json" },
+    });
+    if (res.ok) {
+      const body = (await res.json()) as { markets?: RawMarket[] };
+      const markets = body.markets ?? [];
+      if (markets.length === 0) return null;
+      const firstTitle = markets[0]?.title ?? ticker;
+      const fallbackEvent: RawEvent = event ?? {
+        event_ticker: ticker,
+        series_ticker: ticker.split("-")[0] ?? "",
+        title: firstTitle.replace(/:\s*[^:]+$/, ""),
+        mutually_exclusive: markets.length > 1,
+      };
+      const normalized = normalizeEvent({ ...fallbackEvent, markets }, now);
+      if (normalized.markets.length === 0) return null;
+      eventCache.set(ticker, { event: normalized, expiresAt: now + 30_000 });
+      return normalized;
+    }
+    if (res.status !== 429 || attempt === 2) break;
+    await new Promise((resolve) => setTimeout(resolve, attempt === 0 ? 250 : 750));
+  }
+
+  return null;
 }
 
 /**
