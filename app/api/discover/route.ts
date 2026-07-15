@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { discoverEvents } from "@/lib/kalshi";
+import { cacheMarkets } from "@/lib/markets";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,16 @@ export async function GET(req: NextRequest) {
 
   try {
     const events = await discoverEvents(parsed.data);
+    try {
+      await cacheMarkets(events.flatMap((event) => event.markets));
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          message: "market discovery cache failed",
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
     return NextResponse.json(
       { events },
       {

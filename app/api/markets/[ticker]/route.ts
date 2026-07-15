@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { fetchMarket, type KalshiMarket } from "@/lib/kalshi";
-import { cacheMarket } from "@/lib/markets";
+import { cacheMarket, getCachedMarket } from "@/lib/markets";
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +42,10 @@ export async function GET(
     // Transient Kalshi failure: serve the last good value if we have one.
     if (hit) {
       return NextResponse.json({ market: hit.data, source: "stale", fetchedAt: hit.fetchedAt });
+    }
+    const persisted = await getCachedMarket(ticker);
+    if (persisted) {
+      return NextResponse.json({ market: persisted, source: "persisted", fetchedAt: now });
     }
     return NextResponse.json({ error: String(err) }, { status: 502 });
   }

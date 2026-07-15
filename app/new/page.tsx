@@ -3,7 +3,7 @@ import { ArrowLeft, CircleCheck, Link2, Search } from "lucide-react";
 import { MarketPicker } from "@/components/market-picker";
 import { QuickBetForm } from "@/components/quick-bet-form";
 import { fetchMarket, isBettable } from "@/lib/kalshi";
-import { cacheMarket } from "@/lib/markets";
+import { cacheMarket, getCachedMarket } from "@/lib/markets";
 import { cents } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -67,13 +67,16 @@ async function BetDetails({ ticker }: { ticker: string }) {
   if (!/^[A-Za-z0-9._-]{1,128}$/.test(ticker)) return <MarketProblem />;
 
   let market;
+  let fresh = true;
   try {
     market = await fetchMarket(ticker);
   } catch {
-    return <MarketProblem />;
+    fresh = false;
+    market = await getCachedMarket(ticker);
   }
+  if (!market) return <MarketProblem />;
   if (!isBettable(market)) return <MarketProblem closed />;
-  await cacheMarket(market);
+  if (fresh) await cacheMarket(market);
 
   const outcome =
     market.yesSubTitle && market.yesSubTitle !== market.title ? market.yesSubTitle : "";
